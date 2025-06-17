@@ -7,8 +7,6 @@
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-
-
 </head>
 <body>
     <div class="container">
@@ -35,7 +33,6 @@
             <button id="downloadExcelBtn">Download as Excel</button>
         </div>
     </div>
-
 
     <button id="returnToTop" aria-label="Return to top">
         <i class="fas fa-arrow-up"></i>
@@ -303,9 +300,11 @@
 
             /**
              * Formats dates and numbers within the data array.
+             * Numbers are returned as actual numerical types, not strings.
+             * Date formatting is applied as a string.
              * @param {Array<Array<any>>} data - The array of rows (each row is an array of cells).
              * @param {Array<number>} dateColumnIndices - Indices of columns identified as date columns.
-             * @returns {Array<Array<any>>} A new array with formatted dates and numbers.
+             * @returns {Array<Array<any>>} A new array with formatted dates and raw numbers.
              */
             function formatCells(data, dateColumnIndices) {
                 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -332,22 +331,19 @@
                             return cell;
                         }
 
-                        // Always apply number formatting if the cell is clearly a number
+                        // Always apply number formatting logic if the cell is clearly a number or a string representing one
                         if (typeof cell === 'number') {
-                            return cell.toLocaleString('en-US', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2
-                            });
+                            // Return the number as is. XLSX library will handle it correctly.
+                            return cell;
                         } else if (typeof cell === 'string') {
                             // Strictly check if it's a string representing only a number (with or without commas/decimals)
+                            // This regex now allows for both comma-separated and non-comma-separated numbers.
                             const numericRegex = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/;
                             if (numericRegex.test(cell.trim())) {
                                 let num = parseFloat(cell.replace(/,/g, '')); // Remove commas before parsing to number
                                 if (!isNaN(num)) {
-                                    return num.toLocaleString('en-US', {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                    });
+                                    // Return the parsed number. XLSX library will handle it correctly.
+                                    return num;
                                 }
                             }
                         }
@@ -361,6 +357,20 @@
                 if (processedData) {
                     try {
                         const ws = XLSX.utils.aoa_to_sheet(processedData);
+
+                        // Iterate through the sheet to apply number formatting
+                        for (const cellAddress in ws) {
+                            if (cellAddress[0] === '!') continue; // Skip metadata cells
+
+                            const cell = ws[cellAddress];
+                            // Check if the cell value is a number
+                            if (typeof cell.v === 'number') {
+                                // Apply a number format that includes comma separators and 2 decimal places
+                                // '#,##0.00' will add commas for thousands and ensure two decimal places.
+                                cell.z = '#,##0.00';
+                            }
+                        }
+
                         const wb = XLSX.utils.book_new();
                         XLSX.utils.book_append_sheet(wb, ws, "Cleaned Data");
                         // Use XLSX.writeFile for direct download, using the stored originalFileName
