@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="favicon.png">
     <title>Empty Line Remover</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
@@ -51,340 +52,112 @@
   </button>
   </div>
 </footer>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = document.getElementById('fileInput');
+  const selectFileBtn = document.getElementById('selectFileBtn');
+  const dropArea = document.getElementById('dropArea');
+  const downloadExcelBtn = document.getElementById('downloadExcelBtn');
+  const statusMessage = document.getElementById('statusMessage');
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const fileInput = document.getElementById('fileInput');
-            const selectFileBtn = document.getElementById('selectFileBtn');
-            const dropArea = document.getElementById('dropArea');
-            const outputDiv = document.getElementById('output'); // Still reference, but won't display
-            const downloadExcelBtn = document.getElementById('downloadExcelBtn');
-            const statusMessage = document.getElementById('statusMessage');
-            const darkModeToggle = document.getElementById('darkModeToggle');
-            const returnToTopButton = document.getElementById('returnToTop');
+  let processedWorkbook = null;
+  let originalFileName = 'cleaned_data';
 
-            let processedData = null; // Will store the cleaned data as AoA
-            let originalFileName = 'cleaned_data'; // Initialize with a default value
+  function showStatus(msg, type) {
+    statusMessage.textContent = msg;
+    statusMessage.className = `status-message ${type}`;
+    statusMessage.style.display = 'block';
+    setTimeout(() => (statusMessage.style.display = 'none'), 5000);
+  }
 
-            // Dark Mode Toggle Logic
-            darkModeToggle.addEventListener('click', () => {
-                document.body.dataset.theme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
-                const isDarkMode = document.body.dataset.theme === 'dark';
-                darkModeToggle.querySelector('i').className = isDarkMode ? 'fas fa-moon' : 'fas fa-sun';
-            });
+  selectFileBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('highlight'); });
+  dropArea.addEventListener('dragleave', () => dropArea.classList.remove('highlight'));
+  dropArea.addEventListener('drop', e => {
+    e.preventDefault(); dropArea.classList.remove('highlight');
+    if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+  });
 
-            // Initial theme setting based on user preference or default to light
-            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                document.body.dataset.theme = 'dark';
-                darkModeToggle.querySelector('i').className = 'fas fa-moon';
-            } else {
-                document.body.dataset.theme = 'light';
-                darkModeToggle.querySelector('i').className = 'fas fa-sun';
-            }
+  function handleFile(file) {
+    if (!file) return;
+    originalFileName = file.name.replace(/\.[^/.]+$/, "");
+    const reader = new FileReader();
 
-            // Return to top button functionality
-            window.addEventListener('scroll', () => {
-                if (window.scrollY > 200) {
-                    returnToTopButton.classList.add('show');
-                } else {
-                    returnToTopButton.classList.remove('show');
-                }
-            });
+    reader.onload = e => {
+      const data = new Uint8Array(e.target.result);
 
-            returnToTopButton.addEventListener('click', () => {
-                window.scrollTo({
-                    top: 0,
-                    behavior: 'smooth'
-                });
-            });
+      // Read workbook **as raw text**, no conversions at all
+      const wb = XLSX.read(data, {
+        type: 'array',
+        cellText: true,
+        cellDates: false,
+        cellNF: true,
+        raw: true
+      });
 
-            // Show status message
-            function showStatus(message, type) {
-                statusMessage.textContent = message;
-                statusMessage.className = `status-message ${type}`;
-                statusMessage.style.display = 'block';
-                setTimeout(() => {
-                    statusMessage.style.display = 'none';
-                }, 5000); // Hide after 5 seconds
-            }
+      for (const name of wb.SheetNames) {
+        const ws = wb.Sheets[name];
+        removeEmptyRows(ws);
+      }
 
-            // File selection via button
-            selectFileBtn.addEventListener('click', () => {
-                fileInput.click();
-            });
+      processedWorkbook = wb;
+      downloadExcelBtn.style.display = 'block';
+      showStatus('File processed — empty rows removed.', 'success');
+    };
 
-            fileInput.addEventListener('change', (event) => {
-                const files = event.target.files;
-                if (files.length > 0) {
-                    handleFile(files[0]);
-                }
-            });
+    reader.readAsArrayBuffer(file);
+  }
 
-            // Drag and Drop functionality
-            dropArea.addEventListener('dragover', (event) => {
-                event.preventDefault();
-                dropArea.classList.add('highlight');
-            });
+  // Only remove rows that are truly empty (no defined cells or only blank)
+  function removeEmptyRows(ws) {
+    if (!ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const newWs = {};
+    let newRow = 0;
 
-            dropArea.addEventListener('dragleave', () => {
-                dropArea.classList.remove('highlight');
-            });
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      let empty = true;
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (cell && cell.v !== undefined && String(cell.v).trim() !== '') {
+          empty = false;
+          break;
+        }
+      }
+      if (!empty) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const oldAddr = XLSX.utils.encode_cell({ r, c });
+          const newAddr = XLSX.utils.encode_cell({ r: newRow, c });
+          if (ws[oldAddr]) newWs[newAddr] = ws[oldAddr];
+        }
+        newRow++;
+      }
+    }
 
-            dropArea.addEventListener('drop', (event) => {
-                event.preventDefault();
-                dropArea.classList.remove('highlight');
-                const files = event.dataTransfer.files;
-                if (files.length > 0) {
-                    handleFile(files[0]);
-                }
-            });
+    ws['!ref'] = XLSX.utils.encode_range(
+      { r: 0, c: range.s.c },
+      { r: Math.max(0, newRow - 1), c: range.e.c }
+    );
 
-            function handleFile(file) {
-                // Set originalFileName here
-                const fileNameWithoutExtension = file.name.split('.').slice(0, -1).join('.');
-                originalFileName = fileNameWithoutExtension || 'cleaned_data'; // Fallback in case of no extension
+    // Replace cells
+    for (const k in ws) if (!k.startsWith('!')) delete ws[k];
+    Object.assign(ws, newWs);
+  }
 
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
+  downloadExcelBtn.addEventListener('click', () => {
+    if (!processedWorkbook) return showStatus('No data to download.', 'error');
 
-                    // Assuming the first sheet for simplicity
-                    const sheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[sheetName];
+    // Write file **without changing any data or formats**
+    XLSX.writeFile(processedWorkbook, `${originalFileName}_cleaned.xlsx`, {
+      cellDates: false,
+      cellNF: true,
+      raw: true
+    });
+  });
+});
+</script>
 
-                    // Use raw: true to get raw values including Excel date numbers,
-                    // which allows for more control over parsing.
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true });
-
-                    const cleanedData = removeEmptyRows(jsonData);
-
-                    // Determine which columns are date columns
-                    // We need a clone of cleanedData for analysis to avoid modifying it during analysis.
-                    const dateColumnIndices = findDateColumns(JSON.parse(JSON.stringify(cleanedData))); // Pass a deep copy
-
-                    const formattedData = formatCells(cleanedData, dateColumnIndices); // Pass date column indices
-                    processedData = formattedData; // Store cleaned and formatted data for download
-
-                    downloadExcelBtn.style.display = 'block'; // Show download button
-                    showStatus('File processed successfully! Ready for download.', 'success');
-                };
-
-                reader.onerror = (error) => {
-                    console.error("Error reading file:", error);
-                    showStatus('Error reading file. Please try again.', 'error');
-                };
-
-                // Check file extension and read as ArrayBuffer
-                if (file.name.endsWith('.csv') || file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
-                    reader.readAsArrayBuffer(file);
-                } else {
-                    showStatus('Unsupported file type. Please upload a CSV or Excel file.', 'error');
-                }
-            }
-
-            /**
-             * Removes empty rows from a given data array.
-             * A row is considered empty if it's an array and all its string cells are empty/whitespace,
-             * or if it's not an array or a non-empty string.
-             * @param {Array<Array<any>>} data - The array of rows (each row is an array of cells).
-             * @returns {Array<Array<any>>} A new array with empty rows removed.
-             */
-            function removeEmptyRows(data) {
-                if (!Array.isArray(data) || data.length === 0) {
-                    return [];
-                }
-
-                // Filter rows: keep only rows where at least one cell contains non-whitespace content
-                return data.filter(row =>
-                    Array.isArray(row) && row.some(cell => {
-                        if (cell === null || typeof cell === 'undefined') {
-                            return false;
-                        }
-                        if (typeof cell === 'string') {
-                            return cell.trim() !== '';
-                        }
-                        return true; // Numbers, booleans, etc., are considered non-empty
-                    })
-                );
-            }
-
-            /**
-             * Attempts to parse a value as a date with stricter criteria.
-             * Returns a Date object if successful, null otherwise.
-             * This function is crucial for preventing misidentification.
-             * @param {any} value - The value to attempt to parse as a date.
-             * @returns {Date|null} A Date object if parsed successfully, otherwise null.
-             */
-            function parseDate(value) {
-                // For numerical values, ONLY consider them as Excel dates if they are integers
-                // and within a plausible (not excessively large/small) date range.
-                if (typeof value === 'number' && Number.isInteger(value)) {
-                    try {
-                        const dateObj = XLSX.SSF.parse_date_code(value);
-                        // Check if the parsed date is within a reasonable year range (e.g., 1900-2200)
-                        if (dateObj.y >= 1900 && dateObj.y <= 2200) {
-                            const date = new Date(dateObj.y, dateObj.m - 1, dateObj.d, dateObj.H, dateObj.M, dateObj.S);
-                            if (!isNaN(date.getTime())) {
-                                return date;
-                            }
-                        }
-                    } catch (e) {
-                        // Not a valid Excel date number
-                    }
-                }
-
-                // For string values, attempt to parse with specific common date patterns.
-                // This is to avoid parsing general numbers or other text as dates.
-                if (typeof value === 'string') {
-                    const commonDateRegex = [
-                        /^\d{1,2}\/\d{1,2}\/\d{2,4}$/, // M/D/YY or MM/DD/YYYY
-                        /^\d{1,2}-\d{1,2}-\d{2,4}$/, // M-D-YY or MM-DD-YYYY
-                        /^\d{4}-\d{1,2}-\d{1,2}$/, // YYYY-MM-DD
-                        /^[A-Za-z]{3}\s\d{1,2}\s\d{4}$/, // "Feb 26 2024"
-                        /^\d{1,2}\s[A-Za-z]{3}\s\d{4}$/ // "26 Feb 2024"
-                    ];
-
-                    for (let i = 0; i < commonDateRegex.length; i++) {
-                        if (commonDateRegex[i].test(value.trim())) {
-                            let date = new Date(value.trim());
-                            if (!isNaN(date.getTime())) {
-                                if (date.getFullYear() >= 1900 && date.getFullYear() <= 2200) {
-                                    return date;
-                                }
-                            }
-                        }
-                    }
-                }
-                return null; // Not a recognized date
-            }
-
-            /**
-             * Determines which columns likely contain dates.
-             * THIS VERSION STRICTLY ONLY CONSIDERS THE FIRST COLUMN (INDEX 0) AS A POTENTIAL DATE COLUMN.
-             * @param {Array<Array<any>>} data - The data array (including header).
-             * @returns {Array<number>} An array of column indices identified as date columns.
-             */
-            function findDateColumns(data) {
-                if (!data || data.length < 2) return []; // Need at least header + one row to analyze
-
-                const numColumns = data[0].length;
-                const dateColumnIndices = [];
-
-                // Only consider the first column (index 0) for date detection
-                const colIndexToCheck = 0;
-
-                if (numColumns > colIndexToCheck) {
-                    let dateCandidateCount = 0;
-                    let totalCellsInColumn = 0;
-                    const sampleRowsLimit = Math.min(data.length, 500); // Sample first 500 rows or fewer
-
-                    for (let i = 1; i < sampleRowsLimit; i++) { // Start from second row (skip header)
-                        const cell = data[i][colIndexToCheck];
-                        if (cell !== undefined && cell !== null && String(cell).trim() !== '') {
-                            totalCellsInColumn++;
-                            if (parseDate(cell) !== null) {
-                                dateCandidateCount++;
-                            }
-                        }
-                    }
-
-                    const dateThreshold = 0.8; // If 80% or more of non-empty cells are dates
-                    if (totalCellsInColumn > 0 && (dateCandidateCount / totalCellsInColumn) >= dateThreshold) {
-                        dateColumnIndices.push(colIndexToCheck);
-                    }
-                }
-                return dateColumnIndices; // Will contain [0] or empty array
-            }
-
-
-            /**
-             * Formats dates and numbers within the data array.
-             * Numbers are returned as actual numerical types, not strings.
-             * Date formatting is applied as a string.
-             * @param {Array<Array<any>>} data - The array of rows (each row is an array of cells).
-             * @param {Array<number>} dateColumnIndices - Indices of columns identified as date columns.
-             * @returns {Array<Array<any>>} A new array with formatted dates and raw numbers.
-             */
-            function formatCells(data, dateColumnIndices) {
-                const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-                return data.map((row) => {
-                    return row.map((cell, colIndex) => {
-                        // Apply date formatting ONLY if this column is in the identified dateColumnIndices
-                        if (dateColumnIndices.includes(colIndex)) {
-                            const date = parseDate(cell); // Use the stricter parseDate
-                            if (date) {
-                                // Correct 2-digit year interpretation heuristic
-                                let displayYear = date.getFullYear();
-                                if (displayYear >= 0 && displayYear < 100) {
-                                    const currentTwoDigitYear = (new Date().getFullYear()) % 100;
-                                    if (displayYear <= currentTwoDigitYear + 10) {
-                                        displayYear = 2000 + displayYear;
-                                    } else {
-                                        displayYear = 1900 + displayYear;
-                                    }
-                                }
-                                return `${monthNames[date.getMonth()]} ${String(date.getDate()).padStart(2, '0')} ${displayYear}`;
-                            }
-                            // If it's a date column but parsing failed (e.g., malformed date), keep original value
-                            return cell;
-                        }
-
-                        // Always apply number formatting logic if the cell is clearly a number or a string representing one
-                        if (typeof cell === 'number') {
-                            // Return the number as is. XLSX library will handle it correctly.
-                            return cell;
-                        } else if (typeof cell === 'string') {
-                            // Strictly check if it's a string representing only a number (with or without commas/decimals)
-                            // This regex now allows for both comma-separated and non-comma-separated numbers.
-                            const numericRegex = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/;
-                            if (numericRegex.test(cell.trim())) {
-                                let num = parseFloat(cell.replace(/,/g, '')); // Remove commas before parsing to number
-                                if (!isNaN(num)) {
-                                    // Return the parsed number. XLSX library will handle it correctly.
-                                    return num;
-                                }
-                            }
-                        }
-                        return cell; // Return cell as is if no formatting applies or not a target column
-                    });
-                });
-            }
-
-            // Download button click handler
-            downloadExcelBtn.addEventListener('click', () => {
-                if (processedData) {
-                    try {
-                        const ws = XLSX.utils.aoa_to_sheet(processedData);
-
-                        // Iterate through the sheet to apply number formatting
-                        for (const cellAddress in ws) {
-                            if (cellAddress[0] === '!') continue; // Skip metadata cells
-
-                            const cell = ws[cellAddress];
-                            // Check if the cell value is a number
-                            if (typeof cell.v === 'number') {
-                                // Apply a number format that includes comma separators and 2 decimal places
-                                // '#,##0.00' will add commas for thousands and ensure two decimal places.
-                                cell.z = '#,##0.00';
-                            }
-                        }
-
-                        const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, "Cleaned Data");
-                        // Use XLSX.writeFile for direct download, using the stored originalFileName
-                        XLSX.writeFile(wb, `${originalFileName}_cleaned.xlsx`);
-                        showStatus('Cleaned data downloaded successfully!', 'success');
-                    } catch (error) {
-                        console.error('Error downloading file:', error);
-                        showStatus('Error downloading file: ' + error.message, 'error');
-                    }
-                } else {
-                    showStatus('No data to download. Please upload and process a file first.', 'error');
-                }
-            });
-        });
-    </script>
 </body>
 </html>
